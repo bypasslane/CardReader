@@ -6,18 +6,20 @@
  * Licensed under the MIT license (see LICENSE for details)
  */
 
-var CardReader = function (error_start, track_start, track_end, timeout) {
+var CardReader = function (error_start, track_start, track_end, track_finish, timeout) {
 	this.error_start = error_start || "é";
 	this.track_start = track_start || "%";
-	this.track_end = track_end || "_";
+	this.track_end = track_end || "?";
+  this.track_finish = track_finish || 13
 	this.timeout = timeout || 100;
-	
+
 	this.error_start = this.error_start.charCodeAt(0);
 	this.track_start = this.track_start.charCodeAt(0);
 	this.track_end = this.track_end.charCodeAt(0);
-	
+
 	this.started = false;
 	this.finished = false;
+  this.swipe_done = false;
 	this.isError = false;
 	this.input = "";
 	this.timer = undefined;
@@ -37,7 +39,7 @@ CardReader.prototype = {
 				}
 			}
 		}
-	
+
 		if (this.isDispatching) {
 			if (isError) {
 				console.log("Immediate error!");
@@ -46,14 +48,13 @@ CardReader.prototype = {
 				clearTimeout(this.isDispatching);
 			}
 		}
-	
+
 		var reader = this;
-	
+
 		this.isDispatching = setTimeout(function () {
-			console.log("Error timeout cleared");
 			reader.isDispatching = false;
 		}, 200);
-	
+
 		if (isError) {
 			for (var cb in this.errbacks) {
 				this.errbacks[cb](this.input);
@@ -64,17 +65,18 @@ CardReader.prototype = {
 			}
 		}
 	},
-	
+
 	readObserver: function (e) {
 		var ob = this;
-		
+
 		if (!this.started && (e.which === this.track_start || e.which === this.error_start)) {
-			e.stopImmediatePropagation();
+			clearTimeout(this.timer);
+      e.stopImmediatePropagation();
 			e.preventDefault();
-		
+
 			this.started = true;
 			this.isError = e.which === this.error_start;
-		
+
 			this.timer = setTimeout(function () {
 				ob.started = false;
 				ob.finished = false;
@@ -84,35 +86,32 @@ CardReader.prototype = {
 		} else if (this.started && e.which === this.track_end) {
 			e.stopImmediatePropagation();
 			e.preventDefault();
-		
+
 			this.finished = true;
-		
+      this.started = false;
+
 			clearTimeout(this.timer);
-			this.timer = setTimeout(function () {
-				ob.started = false;
-				ob.finished = false;
-				ob.isError = false;
-				ob.input = "";
-			}, this.timeout);
-		} else if (this.started && this.finished && e.which === 13) {
+
+		} else if (this.finished && e.which === this.track_finish) {
 			e.stopImmediatePropagation();
 			e.preventDefault();
-		
+
 			this.dispatch(this.input, this.isError);
 
 			this.started = false;
 			this.finished = false;
 			this.isError = false;
 			this.input = "";
-		
+      this.swipe_done = true;
 			clearTimeout(this.timer);
-		
+
 		} else if (this.started) {
 			e.stopImmediatePropagation();
 			e.preventDefault();
-		
+
 			this.input += String.fromCharCode(e.which);
-		
+      if(this.read_callback != undefined) this.read_callback(this.input);
+
 			clearTimeout(this.timer);
 			this.timer = setTimeout(function () {
 				ob.started = false;
@@ -120,26 +119,44 @@ CardReader.prototype = {
 				ob.isError = false;
 				ob.input = "";
 			}, this.timeout);
-		}
+		} else if (!this.swipe_done) {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(function () {
+				ob.started = false;
+				ob.finished = false;
+				ob.isError = false;
+				ob.input = "";
+        if(ob.timeout_callback != undefined) ob.timeout_callback();
+			}, this.timeout);
+    }
 	},
-	
+
 	observe: function (element) {
 		var func = this;
-	
+
 		$(element).keypress(function (e) {
 			CardReader.prototype.readObserver.apply(func, arguments);
 		});
 	},
-	
+
 	validate: function (validator) {
 		this.validators.push(validator);
 	},
-	
+
 	cardRead: function (callback) {
 		this.callbacks.push(callback);
 	},
-	
+
 	cardError: function (errback) {
 		this.errbacks.push(errback);
 	},
+
+  cardProgress: function(callback){
+    this.read_callback = callback;
+  },
+
+  swipeTimeout: function(callback) {
+    this.timeout_callback = callback;
+  }
+
 }
